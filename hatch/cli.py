@@ -30,7 +30,11 @@ from hatch.venv import (
     VENV_DIR, clone_venv, create_venv, fix_available_venvs, get_available_venvs,
     is_venv, venv
 )
-
+from hatch.interpreters_osx import (
+    install_interpreter, download_python_pkg,
+    is_pkgs_installed, strip_build_ver, py_framework_path, no_build, gen_installers_cli,
+    PYTHON_PKGS_DEFAULT_PATHS, uninstall_pkgs)
+from itertools import zip_longest
 
 class AliasedGroup(click.Group):  # no cov
     def get_command(self, ctx, cmd_name):
@@ -666,3 +670,50 @@ def shell(env_name, command, shell_name, temp_env, pyname, pypath):  # no cov
             temp_dir.cleanup()
 
     sys.exit(result)
+
+
+@hatch.command(context_settings=UNKNOWN_OPTIONS,
+               short_help='Installing python interpreters from python.org')
+@click.argument('version', required=True)
+@click.option('--rm', 'rm', is_flag=True, help=('Uninstall interpreter'))
+@click.option('-l', '--list', 'py_list', is_flag=True, help=('List all interpreters'))
+@click.pass_context
+def python(ctx, version, rm, py_list):  # no cov
+    if sys.platform != 'darwin':
+        click.echo('Install command currently works only on OS X!')
+
+    if py_list:
+        versions = os.listdir(os.path.join(PYTHON_PKGS_DEFAULT_PATHS['framework'].format('')))
+        click.echo('Installed versions')
+        click.echo(versions)
+        return
+
+    sv = strip_build_ver(version)
+    if rm:
+        if is_pkgs_installed(sv):
+            # TODO: Defend against uninstalling current version which used by hatch
+            pf = py_framework_path(sv)
+            click.echo('Uninstalling python in {}/{}'.format(pf, sv))
+            uninstall_pkgs(sv)
+        else:
+            click.echo('Interpreter is not installed!')
+    else:
+        if no_build(version):
+            click.echo('Please choose from avaliable versions:')
+            vers = [v for v in gen_installers_cli()]
+            for v in zip_longest(vers[0], vers[1]):
+                click.echo('%-10s %-10s' % (v[0] or ' ', v[1]))
+            return
+        if not is_pkgs_installed(sv):
+            # TODO: By default versions with different build just overwriting each other,system python is not changed,
+            # TODO: should we have a feature of overwriting build of Python?
+            click.echo('Downloading python {} from python.org...'.format(version))
+            installer_path = download_python_pkg(version)
+            click.echo('Saved installer in {}'.format(installer_path))
+            click.echo('Installing interpreter (may require your sudo password)...')
+            install_interpreter(installer_path)
+            pf = py_framework_path(sv)
+            click.echo('Interpreter installed in {}'.format(pf, sv))
+        else:
+            pf = py_framework_path(sv)
+            click.echo('Interpreter already installed in {}/{}'.format(pf, sv))
